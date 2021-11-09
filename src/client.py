@@ -66,6 +66,7 @@ def __remove_exist_connection(uuid: str, redis_srv: Redis) -> None:
 
 def __core(uuid: str, redis_srv: Redis) -> None:
     # code goes here
+    pass
 
 
 if __name__ == "__main__":
