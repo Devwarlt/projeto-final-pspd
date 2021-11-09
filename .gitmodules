@@ -1,0 +1,4 @@
+[submodule "redis-db"]
+	path = redis-db
+	url = https://github.com/Valor-Inc/redis-db
+    ignore = all
