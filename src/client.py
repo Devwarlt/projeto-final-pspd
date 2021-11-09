@@ -9,6 +9,7 @@ from random import *
 from hashlib import *
 from logging import *
 from traceback import *
+from threading import *
 
 from time import (time, sleep)
 
@@ -90,10 +91,7 @@ def __handle_outgoing_payload(outgoing_uuid: str, outgoing_content: str) -> byte
     return dumps(outgoing_body).encode(__ENCODING)
 
 
-def __core(uuid: str, redis_srv: Redis) -> None:
-    channel_name: str = __get_channel_name(uuid)
-    redis_pub: PubSub = redis_srv.pubsub()
-    redis_pub.subscribe(channel_name)
+def __handle_incoming_messages(redis_srv: Redis, redis_pub: PubSub) -> None:
     while True:
         incoming_payload: Dict[str, Any] = redis_pub.get_message()
         if incoming_payload:
@@ -119,6 +117,37 @@ def __core(uuid: str, redis_srv: Redis) -> None:
 
         info("There is no message...")
         sleep(0.2)
+
+
+def __handle_outgoing_messages(redis_srv: Redis, redis_pub: PubSub) -> None:
+    while True:
+        pass
+
+
+def __core(uuid: str, redis_srv: Redis) -> None:
+    channel_name: str = __get_channel_name(uuid)
+    redis_pub: PubSub = redis_srv.pubsub()
+    redis_pub.subscribe(channel_name)
+
+    incoming_message_handler: Thread = Thread(
+        target=__handle_incoming_messages,
+        kwargs={
+            'redis_srv': redis_srv,
+            'redis_pub': redis_pub
+        },
+        daemon=True
+    )
+    outgoing_message_handler: Thread = Thread(
+        target=__handle_incoming_messages,
+        kwargs={
+            'redis_srv': redis_srv,
+            'redis_pub': redis_pub
+        },
+        daemon=True
+    )
+
+    incoming_message_handler.start()
+    outgoing_message_handler.start()
 
 
 if __name__ == "__main__":
