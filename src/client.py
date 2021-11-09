@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 
 from json import *
-from time import *
 from redis import *
+from redis.client import *
+from string import *
 from typing import *
+from random import *
 from hashlib import *
 from logging import *
 from traceback import *
 
+from time import (time, sleep)
 
 __CONNECTED_IDS_KEY: str = "connected_ids"
 __ENCODING: str = "utf-8"
+__CHANNEL_NAME_PATTERN: str = "$uuid CHANNEL"
 
 
 def get_logger() -> Logger:
@@ -33,7 +37,7 @@ def __create_instance_uuid() -> str:
 
 def __get(redis_srv: Redis, key: str) -> Any:
     hashmap: bytes = redis_srv.get(key)
-    return loads(hashmap) if hashmap else None
+    return loads(hashmap.decode(__ENCODING)) if hashmap else None
 
 
 def __set(redis_srv: Redis, key: str, value: Any) -> None:
@@ -63,10 +67,58 @@ def __remove_exist_connection(uuid: str, redis_srv: Redis) -> None:
             latest_connected_ids.remove(uuid)
             break
 
+    __set(redis_srv, __CONNECTED_IDS_KEY, latest_connected_ids)
+
+
+def __get_channel_name(uuid: str) -> str:
+    str_template: Template = Template(__CHANNEL_NAME_PATTERN)
+    return str_template.substitute(uuid=uuid)
+
+
+def __handle_incoming_payload(incoming_raw_data: bytes) -> Tuple[str, str]:
+    incoming_body: Dict[str, Any] = loads(incoming_raw_data)
+    incoming_uuid: str = incoming_body.get('uuid')
+    incoming_content: str = incoming_body.get('content')
+    return incoming_uuid, incoming_content
+
+
+def __handle_outgoing_payload(outgoing_uuid: str, outgoing_content: str) -> bytes:
+    outgoing_body: Dict[str, Any] = {
+        'uuid': outgoing_uuid,
+        'content': outgoing_content
+    }
+    return dumps(outgoing_body).encode(__ENCODING)
+
 
 def __core(uuid: str, redis_srv: Redis) -> None:
-    # code goes here
-    pass
+    channel_name: str = __get_channel_name(uuid)
+    redis_pub: PubSub = redis_srv.pubsub()
+    redis_pub.subscribe(channel_name)
+    while True:
+        incoming_payload: Dict[str, Any] = redis_pub.get_message()
+        if incoming_payload:
+            incoming_data: bytes = incoming_payload.get('data')
+            if incoming_data and isinstance(incoming_data, bytes):
+                incoming_raw_data: str = incoming_data.decode(__ENCODING)
+                incoming_uuid, incoming_content\
+                    = __handle_incoming_payload(incoming_raw_data)
+                incoming_channel_name: str = __get_channel_name(incoming_uuid)
+                info(f"New message received!\n'{incoming_content}'")
+
+                outgoing_uuid: str = uuid
+                outgoing_content: str\
+                    = f"Hello '{incoming_uuid}'! "\
+                    f"It's {outgoing_uuid}! "\
+                    f"[{randrange(-1000, 1000).__str__()}]"
+                outgoing_payload: bytes = __handle_outgoing_payload(
+                    outgoing_uuid,
+                    outgoing_content
+                )
+                redis_srv.publish(incoming_channel_name, outgoing_payload)
+                continue
+
+        info("There is no message...")
+        sleep(0.2)
 
 
 if __name__ == "__main__":
