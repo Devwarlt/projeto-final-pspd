@@ -65,10 +65,6 @@ def __remove_exist_connection(uuid: str, redis_srv: Redis) -> None:
 
 
 def __core(uuid: str, redis_srv: Redis) -> None:
-    info(f"The UUID of this application is '{uuid}'.")
-
-    __add_new_connection(uuid, redis_srv)
-
     # code goes here
 
 
@@ -93,10 +89,13 @@ if __name__ == "__main__":
     }
 
     uuid: str = __create_instance_uuid()
+    info(f"The UUID of this application is '{uuid}'.")
+
     redis_srv: Redis = None
 
     try:
         redis_srv = Redis(**redis_cfg)
+        __add_new_connection(uuid, redis_srv)
         __core(uuid, redis_srv)
     except KeyboardInterrupt:
         pass
