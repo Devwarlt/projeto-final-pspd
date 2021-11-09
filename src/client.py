@@ -13,9 +13,10 @@ from threading import *
 
 from time import (time, sleep)
 
-__CONNECTED_IDS_KEY: str = "connected_ids"
-__ENCODING: str = "utf-8"
 __CHANNEL_NAME_PATTERN: str = "$uuid CHANNEL"
+__CONNECTED_IDS_KEY: str = "connected_ids"
+__NETWORK_THREAD_DELAY: float = 2.0
+__ENCODING: str = "utf-8"
 
 
 def get_logger() -> Logger:
@@ -46,12 +47,12 @@ def __set(redis_srv: Redis, key: str, value: Any) -> None:
     redis_srv.set(key, hashmap)
 
 
-def __get_latest_connected_ids(redis_srv: Redis) -> List[str]:
+def __get_connected_ids(redis_srv: Redis) -> List[str]:
     return __get(redis_srv, __CONNECTED_IDS_KEY)
 
 
 def __add_new_connection(uuid: str, redis_srv: Redis) -> None:
-    connected_ids: List[str] = __get_latest_connected_ids(redis_srv)
+    connected_ids: List[str] = __get_connected_ids(redis_srv)
     if connected_ids:
         connected_ids.append(uuid)
     else:
@@ -62,7 +63,7 @@ def __add_new_connection(uuid: str, redis_srv: Redis) -> None:
 
 def __remove_exist_connection(uuid: str, redis_srv: Redis) -> None:
     latest_connected_ids: List[str]\
-        = __get_latest_connected_ids(redis_srv)
+        = __get_connected_ids(redis_srv)
     for connected_id in latest_connected_ids:
         if connected_id == uuid:
             latest_connected_ids.remove(uuid)
@@ -107,7 +108,7 @@ def __handle_incoming_messages(redis_srv: Redis, redis_pub: PubSub) -> None:
                 outgoing_content: str\
                     = f"Hello '{incoming_uuid}'! "\
                     f"It's {outgoing_uuid}! "\
-                    f"[{randrange(-1000, 1000).__str__()}]"
+                    f"[{randrange(-1000, 1000).__str__()}] ~ callback"
                 outgoing_payload: bytes = __handle_outgoing_payload(
                     outgoing_uuid,
                     outgoing_content
@@ -116,18 +117,39 @@ def __handle_incoming_messages(redis_srv: Redis, redis_pub: PubSub) -> None:
                 continue
 
         info("There is no message...")
-        sleep(0.2)
+        sleep(__NETWORK_THREAD_DELAY)
 
 
-def __handle_outgoing_messages(redis_srv: Redis, redis_pub: PubSub) -> None:
+def __handle_outgoing_messages(uuid: str, redis_srv: Redis) -> None:
     while True:
-        pass
+        connected_ids: List[str]\
+            = __get_connected_ids(redis_srv)
+        if connected_ids:
+            if connected_ids.__contains__(uuid):
+                connected_ids.remove(uuid)
+            for connected_id in connected_ids:
+                outgoing_channel_name: str = __get_channel_name(connected_id)
+                outgoing_uuid: str = uuid
+                outgoing_content: str\
+                    = f"Hello '{connected_id}'! "\
+                    f"It's {outgoing_uuid}! "\
+                    f"[{randrange(-1000, 1000).__str__()}] ~ begin"
+                outgoing_payload: bytes = __handle_outgoing_payload(
+                    outgoing_uuid,
+                    outgoing_content
+                )
+                redis_srv.publish(outgoing_channel_name, outgoing_payload)
+
+        info("There is no connected client...")
+        sleep(__NETWORK_THREAD_DELAY)
 
 
 def __core(uuid: str, redis_srv: Redis) -> None:
     channel_name: str = __get_channel_name(uuid)
     redis_pub: PubSub = redis_srv.pubsub()
     redis_pub.subscribe(channel_name)
+
+    info("Press ANY key to shutdown...")
 
     incoming_message_handler: Thread = Thread(
         target=__handle_incoming_messages,
@@ -138,16 +160,21 @@ def __core(uuid: str, redis_srv: Redis) -> None:
         daemon=True
     )
     outgoing_message_handler: Thread = Thread(
-        target=__handle_incoming_messages,
+        target=__handle_outgoing_messages,
         kwargs={
-            'redis_srv': redis_srv,
-            'redis_pub': redis_pub
+            'uuid': uuid,
+            'redis_srv': redis_srv
         },
         daemon=True
     )
 
     incoming_message_handler.start()
     outgoing_message_handler.start()
+
+    _ = input()
+
+    incoming_message_handler.join()
+    outgoing_message_handler.join()
 
 
 if __name__ == "__main__":
